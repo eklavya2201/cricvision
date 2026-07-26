@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CricVision | Sports Vision AI</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏏</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+    :root {
+        --bg: #f6f7f2;
+        --card: #ffffff;
+        --border: #dde3d5;
+        --ink: #16211a;
+        --ink-2: #48544b;
+        --ink-3: #6f7c70;
+        --pitch: #14532d;
+        --grass: #16a34a;
+        --grass-soft: #dcfce7;
+        --ball: #dc2626;
+        --chalk: #fbfcf8;
+        --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body { background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; font-size: 15px; line-height: 1.5; }
+    h1, h2, h3 { font-family: Oswald, sans-serif; text-transform: uppercase; letter-spacing: .02em; }
+    .mono { font-family: "JetBrains Mono", monospace; }
+
+    header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 14px 24px; background: var(--pitch); color: #fff;
+        position: sticky; top: 0; z-index: 10;
+    }
+    header .logo { font-family: Oswald; font-weight: 700; font-size: 22px; letter-spacing: .04em; text-transform: uppercase; }
+    header .logo em { font-style: normal; color: #86efac; }
+    header .links { display: flex; gap: 16px; align-items: center; }
+    header a { color: #d1e7d8; text-decoration: none; font-size: 13px; font-family: "JetBrains Mono"; }
+    header a:hover { color: #fff; }
+
+    main { max-width: 1080px; margin: 0 auto; padding: 30px 24px 64px; display: flex; flex-direction: column; gap: 22px; }
+
+    .hero { text-align: center; padding: 12px 16px 0; }
+    .hero h1 { font-size: clamp(30px, 5.5vw, 52px); font-weight: 700; line-height: 1.08; margin-bottom: 10px; }
+    .hero h1 em { font-style: normal; color: var(--grass); }
+    .hero p { max-width: 640px; margin: 0 auto; color: var(--ink-2); font-size: 15.5px; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; }
+    .card h2 { font-size: 16px; margin-bottom: 14px; letter-spacing: .05em; }
+
+    /* Dropzone */
+    .dropzone {
+        border: 2px dashed var(--border); border-radius: var(--radius); background: var(--chalk);
+        padding: 34px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.drag { border-color: var(--grass); background: var(--grass-soft); }
+    .dropzone .big { font-family: Oswald; font-size: 18px; text-transform: uppercase; letter-spacing: .04em; }
+    .dropzone .small { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
+    #file-input { display: none; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+    button.primary {
+        background: var(--grass); color: #fff; border: 0; border-radius: 8px; padding: 11px 26px;
+        font: 600 14px Oswald; text-transform: uppercase; letter-spacing: .06em; cursor: pointer;
+    }
+    button.primary:hover { filter: brightness(1.07); }
+    button.primary:disabled { opacity: .6; cursor: wait; }
+    .file-chip { font-family: "JetBrains Mono"; font-size: 12px; color: var(--ink-2); }
+
+    /* Scoreboard tiles */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+    .tile {
+        background: var(--pitch); color: #fff; border-radius: var(--radius);
+        padding: 14px 18px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .tile .label { font-family: "JetBrains Mono"; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: #9fd6b2; }
+    .tile .value { font-family: Oswald; font-size: 34px; font-weight: 700; line-height: 1.1; }
+    .tile.ball .value { color: #fca5a5; }
+    .tile.ball .label { color: #fecaca; }
+
+    .grid-2 { display: grid; grid-template-columns: 1.2fr .8fr; gap: 20px; align-items: start; }
+    @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+    .result-img { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { font-family: "JetBrains Mono"; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+    td { padding: 7px 8px; border-bottom: 1px solid #edf1e8; font-size: 13px; }
+    td.num { font-family: "JetBrains Mono"; font-size: 12px; text-align: right; }
+    .lbl { font-family: "JetBrains Mono"; font-size: 11px; padding: 2px 9px; border-radius: 999px; }
+    .lbl-player { background: var(--grass-soft); color: #15803d; border: 1px solid #86efac; }
+    .lbl-ball { background: #fee2e2; color: var(--ball); border: 1px solid #fca5a5; }
+    .conf-wrap { width: 74px; height: 6px; background: #edf1e8; border-radius: 4px; display: inline-block; vertical-align: middle; margin-left: 8px; }
+    .conf-bar { height: 100%; background: var(--grass); border-radius: 4px; }
+    .empty { color: var(--ink-3); font-size: 13.5px; padding: 24px 0; text-align: center; }
+
+    footer { text-align: center; color: var(--ink-3); font-size: 12px; padding: 24px; border-top: 1px solid var(--border); }
+    footer a { color: var(--grass); text-decoration: none; }
+
+    @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    main > * { animation: riseIn .45s ease both; }
+    main > *:nth-child(2) { animation-delay: .07s; }
+    main > *:nth-child(3) { animation-delay: .14s; }
+    main > *:nth-child(4) { animation-delay: .21s; }
+    .card { transition: transform .18s ease, box-shadow .18s ease; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(20,83,45,.08); }
+</style>
+</head>
+<body>
+<header>
+    <span class="logo">🏏 Cric<em>Vision</em></span>
+    <div class="links">
+        <a href="https://github.com/eklavya2201/cricvision">GitHub</a>
+        <a href="/docs">API</a>
+    </div>
+</header>
+
+<main>
+    <section class="hero">
+        <h1>Every <em>player</em>. Every <em>ball</em>. Detected.</h1>
+        <p>Upload any cricket (or sports) photo and CricVision runs real YOLO object detection on it — players and the ball boxed with confidences, right in your browser. No API keys, all local inference.</p>
+    </section>
+
+    <div class="card">
+        <div class="dropzone" id="dropzone">
+            <div class="big">Drop a match photo here</div>
+            <div class="small">or click to browse — JPG/PNG up to 8 MB</div>
+        </div>
+        <input accept="image/*" id="file-input" type="file"/>
+        <div class="actions">
+            <button class="primary" disabled id="detect-btn">Detect</button>
+            <span class="file-chip" id="file-chip"></span>
+        </div>
+    </div>
+
+    <div class="tiles" id="tiles" style="display:none;">
+        <div class="tile"><span class="label">Players</span><span class="value" id="t-players">0</span></div>
+        <div class="tile ball"><span class="label">Balls</span><span class="value" id="t-balls">0</span></div>
+        <div class="tile"><span class="label">Detections</span><span class="value" id="t-total">0</span></div>
+        <div class="tile"><span class="label">Inference</span><span class="value" id="t-latency">–</span></div>
+    </div>
+
+    <div class="grid-2" id="results" style="display:none;">
+        <div class="card">
+            <h2>Annotated frame</h2>
+            <img alt="annotated result" class="result-img" id="annotated"/>
+        </div>
+        <div class="card">
+            <h2>Detections</h2>
+            <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>#</th><th>Label</th><th>Confidence</th><th style="text-align:right">Box</th></tr></thead>
+                <tbody id="rows"></tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer>CricVision — real computer vision on sports footage. · <a href="https://github.com/eklavya2201/cricvision">Source on GitHub</a></footer>
+
+<script>
+    const $ = id => document.getElementById(id);
+    let file = null;
+
+    const dz = $('dropzone'), input = $('file-input'), btn = $('detect-btn');
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+    dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.classList.remove('drag');
+        if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => { if (input.files.length) setFile(input.files[0]); });
+
+    function setFile(f) {
+        file = f;
+        $('file-chip').textContent = `${f.name} (${(f.size / 1024).toFixed(0)} KB)`;
+        btn.disabled = false;
+    }
+
+    btn.addEventListener('click', async () => {
+        if (!file) return;
+        btn.disabled = true;
+        btn.textContent = 'Detecting…';
+        const form = new FormData();
+        form.append('file', file);
+        try {
+            const res = await fetch('/api/detect', { method: 'POST', body: form });
+            if (!res.ok) throw new Error((await res.json()).detail || 'HTTP ' + res.status);
+            render(await res.json());
+        } catch (err) {
+            $('file-chip').textContent = 'Error: ' + err.message;
+        }
+        btn.disabled = false;
+        btn.textContent = 'Detect';
+    });
+
+    function render(r) {
+        $('tiles').style.display = '';
+        $('results').style.display = '';
+        $('t-players').textContent = r.players;
+        $('t-balls').textContent = r.balls;
+        $('t-total').textContent = r.detections.length;
+        $('t-latency').textContent = (r.latency_ms / 1000).toFixed(1) + 's';
+        $('annotated').src = 'data:image/jpeg;base64,' + r.annotated_jpeg_b64;
+        const rows = r.detections
+            .sort((a, b) => b.confidence - a.confidence)
+            .map((d, i) => `<tr>
+                <td class="num">${i + 1}</td>
+                <td><span class="lbl lbl-${d.label}">${d.label}</span></td>
+                <td>${(d.confidence * 100).toFixed(0)}%<span class="conf-wrap"><span class="conf-bar" style="width:${d.confidence * 100}%;display:block"></span></span></td>
+                <td class="num">${d.box.join(', ')}</td>
+            </tr>`).join('');
+        $('rows').innerHTML = rows || '<tr><td class="empty" colspan="4">No players or balls found in this image.</td></tr>';
+    }
+</script>
+</body>
+</html>
