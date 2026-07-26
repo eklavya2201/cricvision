@@ -58,10 +58,42 @@ cd backend && python -m pytest tests -q
 - [ ] Ball trajectory tracking across frames (ByteTrack), speed estimate from frame delta
 - [ ] Player heatmap over a fixed-camera clip
 
-### Phase 3 — My own dataset (the real ML)
-- [ ] Collect frames from broadcast footage; label with Label Studio: `batsman / bowler / keeper / umpire / fielder / ball / stumps`
-- [ ] Fine-tune YOLOv8 on the custom classes; publish training curves + mAP table vs the pretrained baseline
-- [ ] Honest error analysis: where the model fails (motion blur, crowd occlusion, white-ball vs red-ball)
+### Phase 3 — Fine-tuning on my own dataset (the real ML)
+
+The full training loop, documented as it happens. Each step has a concrete finish line.
+
+**3.1 — Data collection**
+- [ ] Extract frames from match footage with a sampling script (1 frame/2s, dedup near-identical frames by perceptual hash)
+- [ ] Target: **1,500+ frames** across formats (Tests/red ball, ODI/white ball), lighting (day/night), and camera angles (broadcast main, side-on)
+  - *Done when: `data/raw/` has ≥1,500 diverse frames with a provenance log (source clip, timestamp)*
+
+**3.2 — Labeling**
+- [ ] Label in **Label Studio** with a 7-class schema: `batsman / bowler / wicketkeeper / umpire / fielder / ball / stumps`
+- [ ] Write a labeling guide first (what counts as "batsman" mid-runout? partial occlusion rules? min box size for the ball) — consistency beats volume
+- [ ] Double-label a 10% sample to measure my own annotation agreement; re-label classes below 90% agreement
+  - *Done when: every frame labeled, exported to YOLO format, agreement measured and reported*
+
+**3.3 — Dataset engineering**
+- [ ] Split **70/20/10 train/val/test by match, not by frame** — frames from the same match must never cross splits (leakage would inflate mAP)
+- [ ] Address ball scarcity (tiny object, few pixels): mosaic + copy-paste augmentation, higher input resolution (`imgsz=1280`) for the ball's sake
+  - *Done when: `dataset.yaml` checked in, class-count table per split published in the README*
+
+**3.4 — Training**
+- [ ] Baseline first: evaluate **pretrained COCO YOLOv8n** on my test set (person→player-classes collapsed, sports-ball→ball) — this is the number to beat
+- [ ] Fine-tune YOLOv8n, then YOLOv8s, from pretrained weights: ~100 epochs, early stopping on val mAP, default hyperparameters before any tuning
+- [ ] Train on free GPU (Kaggle/Colab); keep the exact notebook + seed in `training/` so results are reproducible
+  - *Done when: training curves (box/cls loss, mAP@50) committed as images, best weights published as a GitHub release*
+
+**3.5 — Evaluation & error analysis**
+- [ ] Publish the headline table: **mAP@50 and mAP@50-95, per class, pretrained-baseline vs fine-tuned** — including where fine-tuning *doesn't* help
+- [ ] Confusion matrix across the 7 classes (where does `fielder` bleed into `batsman`?)
+- [ ] Honest failure gallery: motion-blurred balls, crowd occlusion, night-game white ball vs floodlights, umpire/keeper confusion
+  - *Done when: a reader can tell exactly how good the model is, per class, and where it breaks*
+
+**3.6 — Ship it**
+- [ ] Swap the app's weights to the fine-tuned model behind a `CRICVISION_WEIGHTS` env var (pretrained stays the default fallback)
+- [ ] Upload weights + dataset card to Hugging Face Hub; deploy the app to HF Spaces
+  - *Done when: the live demo detects `batsman` vs `bowler` — something COCO fundamentally cannot do*
 
 ### Phase 4 — Cricket intelligence
 - [ ] Shot classification (drive/pull/cut) from pose keypoints
