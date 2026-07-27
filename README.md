@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/eklavya2201/cricvision/actions/workflows/ci.yml/badge.svg)](https://github.com/eklavya2201/cricvision/actions/workflows/ci.yml)
 
-**Real computer vision on cricket footage.** Upload a match photo and CricVision runs YOLO object detection locally — every player and the ball boxed with confidences, rendered in a scoreboard-style UI. No API keys, no cloud inference.
+**Real computer vision on cricket footage.** Upload a match photo — or a short clip — and CricVision runs YOLO object detection locally: every player and the ball boxed with confidences, ByteTrack IDs stitched across frames into an annotated video, ball speed estimated from frame deltas, and a player-position heatmap. No API keys, no cloud inference.
 
 > Unlike my LLM projects ([InterviewOps](https://github.com/eklavya2201/InterviewOPS), [TokenMeter](https://github.com/eklavya2201/Token-Meter), [agenttrace](https://github.com/eklavya2201/agenttrace)) which orchestrate hosted models, CricVision is the *classical ML* track: model weights on disk, tensor inference on your CPU, and a roadmap that ends in fine-tuning on my own labeled dataset.
 
@@ -35,11 +35,16 @@ Open **http://localhost:8000**, drop in any cricket photo, hit **Detect**. First
 | Endpoint | What it does |
 |---|---|
 | `POST /api/detect` | multipart image → `{detections[], players, balls, latency_ms, annotated_jpeg_b64}` |
+| `POST /api/video` | multipart clip (≤ 50 MB, first 300 frames) + optional `pitch_len_px` → `{job_id}`; processing runs in the background |
+| `GET /api/video/{job_id}` | `{status, progress, result, error}` — result has `frames_processed`, `unique_players` (ByteTrack IDs), `ball` speed stats, `heatmap_jpeg_b64` |
+| `GET /api/video/{job_id}/annotated.mp4` | the stitched, annotated H.264 clip |
 | `GET /api/health` | `{status, weights}` |
+
+**Ball speed honesty note**: without calibration the speed is reported in px/s. Pass `pitch_len_px` (pixel distance stumps→stumps, 20.12 m) and it converts to km/h — a rough single-plane estimate, not Hawk-Eye.
 
 ## Tests
 
-5 API tests (valid shape on real inference, empty/garbage/oversize rejection) run on every push — CI performs actual YOLO inference on a generated image.
+10 API tests (valid shape on real inference, video pipeline end-to-end on a synthetic clip, empty/garbage/oversize rejection) run on every push — CI performs actual YOLO inference and ByteTrack tracking.
 
 ```bash
 pip install -r backend/requirements-dev.txt
@@ -53,10 +58,10 @@ cd backend && python -m pytest tests -q
 - [x] Scoreboard UI with drag-and-drop upload
 - [x] Test suite + CI (real inference in CI)
 
-### Phase 2 — Video & tracking
-- [ ] Short-clip upload: per-frame detection stitched into an annotated video
-- [ ] Ball trajectory tracking across frames (ByteTrack), speed estimate from frame delta
-- [ ] Player heatmap over a fixed-camera clip
+### Phase 2 — Video & tracking ✅ (shipped)
+- [x] Short-clip upload: per-frame detection stitched into an annotated video
+- [x] Ball trajectory tracking across frames (ByteTrack), speed estimate from frame delta
+- [x] Player heatmap over a fixed-camera clip
 
 ### Phase 3 — Fine-tuning on my own dataset (the real ML)
 
