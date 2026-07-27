@@ -4,3 +4,6 @@ uvicorn[standard]==0.30.*
 pillow>=10.0
 python-multipart>=0.0.9
 ultralytics>=8.2
+lap>=0.5          # ByteTrack assignment solver
+imageio>=2.31     # H.264 stitching (cv2 can't encode browser-playable mp4 everywhere)
+imageio-ffmpeg>=0.4
