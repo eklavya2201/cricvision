@@ -91,6 +91,15 @@
     .conf-bar { height: 100%; background: var(--grass); border-radius: 4px; }
     .empty { color: var(--ink-3); font-size: 13.5px; padding: 24px 0; text-align: center; }
 
+    .section-h { font-size: 20px; margin-top: 14px; }
+    .section-h em { font-style: normal; color: var(--grass); }
+    .hint-input { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-3); }
+    .hint-input input { width: 90px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-family: "JetBrains Mono"; font-size: 12px; }
+    .progress-wrap { height: 8px; background: #edf1e8; border-radius: 4px; overflow: hidden; margin-top: 14px; }
+    .progress-bar { height: 100%; width: 0; background: var(--grass); transition: width .4s ease; }
+    .progress-label { font-family: "JetBrains Mono"; font-size: 11.5px; color: var(--ink-3); margin-top: 6px; }
+    video.result-vid { width: 100%; border-radius: 10px; border: 1px solid var(--border); display: block; background: #000; }
+
     footer { text-align: center; color: var(--ink-3); font-size: 12px; padding: 24px; border-top: 1px solid var(--border); }
     footer a { color: var(--grass); text-decoration: none; }
 
@@ -152,6 +161,44 @@
             </div>
         </div>
     </div>
+    <h2 class="section-h">Video &amp; <em>tracking</em></h2>
+
+    <div class="card">
+        <div class="dropzone" id="v-dropzone">
+            <div class="big">Drop a short clip here</div>
+            <div class="small">or click to browse — MP4/WebM up to 50 MB · first 300 frames analysed</div>
+        </div>
+        <input accept="video/*" id="v-file-input" type="file"/>
+        <div class="actions">
+            <button class="primary" disabled id="v-btn">Analyse clip</button>
+            <span class="file-chip" id="v-file-chip"></span>
+            <span class="hint-input">
+                pitch length <input id="v-pitch-px" min="1" placeholder="px" type="number"/> px (stumps→stumps, optional — unlocks km/h)
+            </span>
+        </div>
+        <div id="v-progress" style="display:none;">
+            <div class="progress-wrap"><div class="progress-bar" id="v-progress-bar"></div></div>
+            <div class="progress-label" id="v-progress-label">queued…</div>
+        </div>
+    </div>
+
+    <div class="tiles" id="v-tiles" style="display:none;">
+        <div class="tile"><span class="label">Frames</span><span class="value" id="v-t-frames">0</span></div>
+        <div class="tile"><span class="label">Players tracked</span><span class="value" id="v-t-players">0</span></div>
+        <div class="tile ball"><span class="label" id="v-t-speed-label">Ball speed (max)</span><span class="value" id="v-t-speed">–</span></div>
+        <div class="tile"><span class="label">Ball sightings</span><span class="value" id="v-t-sightings">0</span></div>
+    </div>
+
+    <div class="grid-2" id="v-results" style="display:none;">
+        <div class="card">
+            <h2>Annotated clip · ByteTrack IDs</h2>
+            <video class="result-vid" controls id="v-video" loop muted playsinline></video>
+        </div>
+        <div class="card">
+            <h2>Player heatmap</h2>
+            <img alt="player position heatmap" class="result-img" id="v-heatmap"/>
+        </div>
+    </div>
 </main>
 
 <footer>CricVision — real computer vision on sports footage. · <a href="https://github.com/eklavya2201/cricvision">Source on GitHub</a></footer>
@@ -211,6 +258,78 @@
                 <td class="num">${d.box.join(', ')}</td>
             </tr>`).join('');
         $('rows').innerHTML = rows || '<tr><td class="empty" colspan="4">No players or balls found in this image.</td></tr>';
+    }
+
+    // ---- Video & tracking ----
+    let vFile = null;
+    const vdz = $('v-dropzone'), vInput = $('v-file-input'), vBtn = $('v-btn');
+    vdz.addEventListener('click', () => vInput.click());
+    vdz.addEventListener('dragover', e => { e.preventDefault(); vdz.classList.add('drag'); });
+    vdz.addEventListener('dragleave', () => vdz.classList.remove('drag'));
+    vdz.addEventListener('drop', e => {
+        e.preventDefault();
+        vdz.classList.remove('drag');
+        if (e.dataTransfer.files.length) setVideoFile(e.dataTransfer.files[0]);
+    });
+    vInput.addEventListener('change', () => { if (vInput.files.length) setVideoFile(vInput.files[0]); });
+
+    function setVideoFile(f) {
+        vFile = f;
+        $('v-file-chip').textContent = `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`;
+        vBtn.disabled = false;
+    }
+
+    vBtn.addEventListener('click', async () => {
+        if (!vFile) return;
+        vBtn.disabled = true;
+        vBtn.textContent = 'Uploading…';
+        const form = new FormData();
+        form.append('file', vFile);
+        const pitchPx = $('v-pitch-px').value;
+        if (pitchPx) form.append('pitch_len_px', pitchPx);
+        try {
+            const res = await fetch('/api/video', { method: 'POST', body: form });
+            if (!res.ok) throw new Error((await res.json()).detail || 'HTTP ' + res.status);
+            $('v-progress').style.display = '';
+            vBtn.textContent = 'Analysing…';
+            await pollVideo((await res.json()).job_id);
+        } catch (err) {
+            $('v-file-chip').textContent = 'Error: ' + err.message;
+        }
+        $('v-progress').style.display = 'none';
+        vBtn.disabled = false;
+        vBtn.textContent = 'Analyse clip';
+    });
+
+    async function pollVideo(jobId) {
+        for (;;) {
+            const r = await (await fetch('/api/video/' + jobId)).json();
+            if (r.status === 'error') throw new Error(r.error);
+            const pct = Math.round(r.progress * 100);
+            $('v-progress-bar').style.width = pct + '%';
+            $('v-progress-label').textContent = `running detection + tracking… ${pct}%`;
+            if (r.status === 'done') { renderVideo(jobId, r.result); return; }
+            await new Promise(res => setTimeout(res, 1000));
+        }
+    }
+
+    function renderVideo(jobId, r) {
+        $('v-tiles').style.display = '';
+        $('v-results').style.display = '';
+        $('v-t-frames').textContent = r.frames_processed;
+        $('v-t-players').textContent = r.unique_players;
+        $('v-t-sightings').textContent = r.ball.sightings;
+        if (r.ball.speed_kmh_max != null) {
+            $('v-t-speed-label').textContent = 'Ball speed (max)';
+            $('v-t-speed').textContent = r.ball.speed_kmh_max + ' km/h';
+        } else if (r.ball.speed_px_s_max != null) {
+            $('v-t-speed-label').textContent = 'Ball speed (max, uncalibrated)';
+            $('v-t-speed').textContent = Math.round(r.ball.speed_px_s_max) + ' px/s';
+        } else {
+            $('v-t-speed').textContent = '–';
+        }
+        $('v-video').src = '/api/video/' + jobId + '/annotated.mp4';
+        $('v-heatmap').src = 'data:image/jpeg;base64,' + r.heatmap_jpeg_b64;
     }
 </script>
 </body>
