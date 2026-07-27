@@ -13,11 +13,17 @@ photo upload ──► YOLOv8n (COCO-pretrained, runs locally)
                    │  classes filtered: person → "player", sports ball → "ball"
                    ▼
         boxes + confidences + annotated frame ──► scoreboard UI
+
+video upload ──► background job: per-frame YOLOv8n + ByteTrack (persistent IDs)
+                   │  ball centres per frame ──► speed from frame deltas
+                   │  player foot positions ──► Gaussian-blurred density heatmap
+                   ▼
+        annotated H.264 clip + speed stats + heatmap ──► video UI (progress-polled)
 ```
 
 - **Model**: `yolov8n` (nano) — 6 MB of weights, fast enough for CPU inference (~1s per image)
 - **Classes**: COCO `person` and `sports ball` map cleanly onto cricket frames out of the box
-- Uploads are validated (type, size ≤ 8 MB) and never stored — inference is stateless
+- Uploads are validated (type, size ≤ 8 MB images / 50 MB clips); images are never stored, video jobs live in a temp dir that's evicted automatically
 
 ## Run locally
 
@@ -62,6 +68,15 @@ cd backend && python -m pytest tests -q
 - [x] Short-clip upload: per-frame detection stitched into an annotated video
 - [x] Ball trajectory tracking across frames (ByteTrack), speed estimate from frame delta
 - [x] Player heatmap over a fixed-camera clip
+
+**How Phase 2 works** (`backend/app/video.py`):
+
+- **Async jobs, not blocking requests** — a clip kicks off a background thread and returns a `job_id`; the UI polls progress (0→100%) every second. Jobs live in an in-memory registry; each gets its own temp dir, evicted oldest-first beyond 6 jobs.
+- **Per-frame tracking** — first 300 frames, downscaled to ≤960px for CPU latency, run through `model.track()` with the ByteTrack tracker. A **fresh YOLO model per job** keeps tracker state from leaking between clips. `unique_players` = distinct ByteTrack IDs seen.
+- **Ball speed** — consecutive ball sightings (up to a 5-frame detection gap, because a small fast ball drops out of frames) give displacement ÷ time = px/s, median-of-3 smoothed to kill single-frame jitter spikes. Optional `pitch_len_px` calibration converts to km/h.
+- **Heatmap** — each player's foot position (bottom-centre of their box) accumulates into a density grid, Gaussian-blurred with a kernel scaled to frame width, rendered as a TURBO colormap alpha-blended over the first frame (fixed-camera assumption).
+- **H.264 stitching via `imageio-ffmpeg`** — OpenCV on Windows ships without OpenH264, so `cv2.VideoWriter` mp4s won't play in browsers; imageio's bundled ffmpeg encodes real `libx264`.
+- **Tested end-to-end** — CI runs the whole pipeline (real inference + tracking + stitching) on a synthetic moving-ball clip, plus rejection tests for garbage/empty/oversize uploads.
 
 ### Phase 3 — Fine-tuning on my own dataset (the real ML)
 
