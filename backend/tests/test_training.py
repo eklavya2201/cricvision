@@ -8,6 +8,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "training"))
 
 import agreement  # noqa: E402
+import baseline_eval  # noqa: E402
 import extract_frames  # noqa: E402
 import split_dataset  # noqa: E402
 
@@ -172,3 +173,32 @@ def test_split_refuses_fewer_than_three_matches(tmp_path):
 
     with pytest.raises(SystemExit):
         split_dataset.build(images, labels, tmp_path / "dataset")
+
+
+def test_baseline_collapse_maps_players_and_ball_drops_stumps():
+    text = "\n".join([
+        "0 0.5 0.5 0.2 0.4",   # batsman -> person
+        "4 0.3 0.3 0.1 0.2",   # fielder -> person
+        "5 0.1 0.1 0.05 0.05", # ball -> sports ball
+        "6 0.8 0.8 0.1 0.2",   # stumps -> dropped
+    ])
+    out = baseline_eval.collapse_label_text(text).splitlines()
+    assert out == ["0 0.5 0.5 0.2 0.4", "0 0.3 0.3 0.1 0.2", "32 0.1 0.1 0.05 0.05"]
+
+
+def test_baseline_builds_collapsed_test_split(tmp_path):
+    dataset = tmp_path / "dataset"
+    (dataset / "images" / "test").mkdir(parents=True)
+    (dataset / "labels" / "test").mkdir(parents=True)
+    (dataset / "images" / "test" / "f1.jpg").write_bytes(b"\xff\xd8fake")
+    (dataset / "labels" / "test" / "f1.txt").write_text("2 0.5 0.5 0.2 0.4\n6 0.8 0.8 0.1 0.2")
+    (dataset / "images" / "test" / "bg.jpg").write_bytes(b"\xff\xd8fake")  # background frame
+
+    coco_names = {0: "person", 32: "sports ball"}
+    yaml_path = baseline_eval.build_collapsed_split(dataset, tmp_path / "collapsed", coco_names)
+
+    collapsed = (tmp_path / "collapsed" / "labels" / "test" / "f1.txt").read_text()
+    assert collapsed == "0 0.5 0.5 0.2 0.4"  # keeper -> person, stumps gone
+    assert (tmp_path / "collapsed" / "images" / "test" / "bg.jpg").exists()
+    yaml = yaml_path.read_text()
+    assert "0: person" in yaml and "32: sports ball" in yaml
