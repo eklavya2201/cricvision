@@ -1,0 +1,15 @@
+<!-- Label Studio labeling interface for CricVision (Phase 3.2).
+     Class order MUST match LABELING_GUIDE.md and dataset.yaml:
+     batsman=0 bowler=1 wicketkeeper=2 umpire=3 fielder=4 ball=5 stumps=6 -->
+<View>
+  <Image name="image" value="$image" zoom="true" zoomControl="true"/>
+  <RectangleLabels name="label" toName="image" strokeWidth="2" showInline="true">
+    <Label value="batsman" background="#e6194b"/>
+    <Label value="bowler" background="#3cb44b"/>
+    <Label value="wicketkeeper" background="#ffe119"/>
+    <Label value="umpire" background="#4363d8"/>
+    <Label value="fielder" background="#f58231"/>
+    <Label value="ball" background="#911eb4"/>
+    <Label value="stumps" background="#42d4f4"/>
+  </RectangleLabels>
+</View>
