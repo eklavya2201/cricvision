@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "training"))
 
 import agreement  # noqa: E402
 import extract_frames  # noqa: E402
+import split_dataset  # noqa: E402
 
 
 def _write_clip(path: Path, scenes: int, frames_per_scene: int = 30, fps: int = 10):
@@ -99,3 +100,75 @@ def test_provenance_rows_have_source_and_timestamp(tmp_path):
         assert float(row["timestamp_s"]) >= 0
         assert len(row["dhash"]) == 16
         assert (out / row["file"]).exists()
+
+
+def _fake_pool(tmp_path, matches: dict[str, int]):
+    """Fake data/raw + labels: {match_name: frame_count}. Every 2nd frame gets a label."""
+    import csv
+
+    images, labels = tmp_path / "raw", tmp_path / "labels"
+    images.mkdir()
+    labels.mkdir()
+    rows = []
+    i = 0
+    for match, count in matches.items():
+        for k in range(count):
+            name = f"{match}_{k:03d}.jpg"
+            (images / name).write_bytes(b"\xff\xd8fake")
+            rows.append({"file": name, "source": f"{match}.mp4",
+                         "timestamp_s": f"{k * 2}.00", "dhash": f"{i:016x}"})
+            if k % 2 == 0:
+                (labels / f"{match}_{k:03d}.txt").write_text("0 0.5 0.5 0.2 0.4\n5 0.1 0.1 0.05 0.05")
+            i += 1
+    with open(images / "provenance.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=extract_frames.PROVENANCE_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    return images, labels
+
+
+def test_split_never_crosses_matches_and_hits_ratios(tmp_path):
+    images, labels = _fake_pool(tmp_path, {"m1": 40, "m2": 30, "m3": 12, "m4": 10, "m5": 8})
+    out = tmp_path / "dataset"
+
+    result = split_dataset.build(images, labels, out)
+
+    # every frame of a match landed in exactly one split dir
+    for match, split in result["assignment"].items():
+        stem = match.removesuffix(".mp4")
+        for other in ("train", "val", "test"):
+            found = list((out / "images" / other).glob(f"{stem}_*.jpg"))
+            assert bool(found) == (other == split)
+
+    stats = result["stats"]
+    total = sum(s["frames"] for s in stats.values())
+    assert total == 100
+    assert stats["train"]["frames"] >= 50  # 70% target, match-granular
+    assert stats["val"]["frames"] > 0 and stats["test"]["frames"] > 0
+
+    yaml = (out / "dataset.yaml").read_text()
+    assert "6: stumps" in yaml and "0: batsman" in yaml
+
+
+def test_split_counts_classes_and_keeps_background_frames(tmp_path):
+    images, labels = _fake_pool(tmp_path, {"m1": 4, "m2": 4, "m3": 4})
+    out = tmp_path / "dataset"
+
+    result = split_dataset.build(images, labels, out)
+
+    stats = result["stats"]
+    # 6 labeled frames (every 2nd of 12), each with 1 batsman + 1 ball
+    assert sum(s["classes"][0] for s in stats.values()) == 6
+    assert sum(s["classes"][5] for s in stats.values()) == 6
+    # unlabeled (background) frames still copied as images
+    total_images = sum(len(list((out / "images" / s).glob("*.jpg")))
+                       for s in ("train", "val", "test"))
+    assert total_images == 12
+
+
+def test_split_refuses_fewer_than_three_matches(tmp_path):
+    images, labels = _fake_pool(tmp_path, {"m1": 5, "m2": 5})
+    import pytest
+
+    with pytest.raises(SystemExit):
+        split_dataset.build(images, labels, tmp_path / "dataset")
