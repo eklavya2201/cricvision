@@ -18,7 +18,7 @@ import cv2
 import imageio.v2 as imageio
 import numpy as np
 
-from .detector import WEIGHTS
+from . import detector
 
 MAX_FRAMES = 300          # cap CPU work per clip
 MAX_SIDE = 960            # downscale long side before inference
@@ -77,7 +77,7 @@ def _run(job: dict, src: Path, pitch_len_px: float | None):
 def _process(job: dict, src: Path, pitch_len_px: float | None) -> dict:
     start = time.perf_counter()
     from ultralytics import YOLO
-    model = YOLO(WEIGHTS)  # fresh model per job: ByteTrack state must not leak across clips
+    model = YOLO(detector.WEIGHTS)  # fresh model per job: ByteTrack state must not leak across clips
 
     cap = cv2.VideoCapture(str(src))
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -107,14 +107,14 @@ def _process(job: dict, src: Path, pitch_len_px: float | None) -> dict:
             first_frame = frame.copy()
             heat = np.zeros(frame.shape[:2], np.float32)
 
-        r = model.track(frame, persist=True, conf=0.25, classes=[0, 32],
+        r = model.track(frame, persist=True, conf=0.25, classes=detector.CLASS_FILTER,
                         tracker="bytetrack.yaml", verbose=False)[0]
         for box in r.boxes:
-            cls = int(box.cls[0])
+            label = detector.label_for(int(box.cls[0]), r.names)
             x1, y1, x2, y2 = box.xyxy[0].tolist()
-            if cls == 32:
+            if label in detector.BALL_LABELS:
                 ball_pts.append((n, (x1 + x2) / 2, (y1 + y2) / 2))
-            else:
+            elif label not in detector.NON_PLAYER_LABELS:
                 if box.id is not None:
                     player_ids.add(int(box.id[0]))
                 # feet position (bottom-center) → heatmap
