@@ -50,7 +50,7 @@ Open **http://localhost:8000**, drop in any cricket photo, hit **Detect**. First
 
 ## Tests
 
-10 API tests (valid shape on real inference, video pipeline end-to-end on a synthetic clip, empty/garbage/oversize rejection) run on every push — CI performs actual YOLO inference and ByteTrack tracking.
+22 tests run on every push — API contract on real inference, the video pipeline end-to-end on a synthetic clip, empty/garbage/oversize rejection, and the Phase-3 training tooling (frame dedup, label agreement, leakage-free splits, baseline class collapse). CI performs actual YOLO inference and ByteTrack tracking.
 
 ```bash
 pip install -r backend/requirements-dev.txt
@@ -82,26 +82,38 @@ cd backend && python -m pytest tests -q
 
 The full training loop, documented as it happens. Each step has a concrete finish line.
 
+**Tooling shipped ✅** — every script the loop needs lives in `training/` (tested in CI); what remains is the human work: collecting footage, labeling, and the GPU run.
+
+```bash
+cd training
+python extract_frames.py match1.mp4 match2.mp4 --out ../data/raw   # 3.1: sample + dedup + provenance
+# label data/raw in Label Studio (label_studio_config.xml, rules in LABELING_GUIDE.md)
+python agreement.py export_a/labels export_b/labels                 # 3.2: double-label agreement
+python split_dataset.py                                             # 3.3: split by match, dataset.yaml
+python baseline_eval.py                                             # 3.4: pretrained baseline on test split
+# then run finetune.ipynb on Kaggle/Colab (seed 42, yolov8n + yolov8s)
+```
+
 **3.1 — Data collection**
-- [ ] Extract frames from match footage with a sampling script (1 frame/2s, dedup near-identical frames by perceptual hash)
+- [x] Extract frames from match footage with a sampling script (1 frame/2s, dedup near-identical frames by perceptual hash) — `training/extract_frames.py`
 - [ ] Target: **1,500+ frames** across formats (Tests/red ball, ODI/white ball), lighting (day/night), and camera angles (broadcast main, side-on)
   - *Done when: `data/raw/` has ≥1,500 diverse frames with a provenance log (source clip, timestamp)*
 
 **3.2 — Labeling**
-- [ ] Label in **Label Studio** with a 7-class schema: `batsman / bowler / wicketkeeper / umpire / fielder / ball / stumps`
-- [ ] Write a labeling guide first (what counts as "batsman" mid-runout? partial occlusion rules? min box size for the ball) — consistency beats volume
-- [ ] Double-label a 10% sample to measure my own annotation agreement; re-label classes below 90% agreement
+- [ ] Label in **Label Studio** with a 7-class schema: `batsman / bowler / wicketkeeper / umpire / fielder / ball / stumps` — interface config in `training/label_studio_config.xml`
+- [x] Write a labeling guide first (what counts as "batsman" mid-runout? partial occlusion rules? min box size for the ball) — `training/LABELING_GUIDE.md`
+- [ ] Double-label a 10% sample to measure my own annotation agreement; re-label classes below 90% agreement — measured by `training/agreement.py` (IoU-matched F1 per class)
   - *Done when: every frame labeled, exported to YOLO format, agreement measured and reported*
 
 **3.3 — Dataset engineering**
-- [ ] Split **70/20/10 train/val/test by match, not by frame** — frames from the same match must never cross splits (leakage would inflate mAP)
-- [ ] Address ball scarcity (tiny object, few pixels): mosaic + copy-paste augmentation, higher input resolution (`imgsz=1280`) for the ball's sake
+- [x] Split **70/20/10 train/val/test by match, not by frame** — frames from the same match must never cross splits (leakage would inflate mAP) — `training/split_dataset.py` (also emits `dataset.yaml` + the class-count table)
+- [ ] Address ball scarcity (tiny object, few pixels): mosaic + copy-paste augmentation, higher input resolution (`imgsz=1280`) for the ball's sake — wired into the notebook, verified on real data
   - *Done when: `dataset.yaml` checked in, class-count table per split published in the README*
 
 **3.4 — Training**
-- [ ] Baseline first: evaluate **pretrained COCO YOLOv8n** on my test set (person→player-classes collapsed, sports-ball→ball) — this is the number to beat
+- [x] Baseline first: evaluate **pretrained COCO YOLOv8n** on my test set (person→player-classes collapsed, sports-ball→ball) — this is the number to beat — `training/baseline_eval.py`
 - [ ] Fine-tune YOLOv8n, then YOLOv8s, from pretrained weights: ~100 epochs, early stopping on val mAP, default hyperparameters before any tuning
-- [ ] Train on free GPU (Kaggle/Colab); keep the exact notebook + seed in `training/` so results are reproducible
+- [ ] Train on free GPU (Kaggle/Colab); keep the exact notebook + seed in `training/` so results are reproducible — notebook ready: `training/finetune.ipynb` (seed 42)
   - *Done when: training curves (box/cls loss, mAP@50) committed as images, best weights published as a GitHub release*
 
 **3.5 — Evaluation & error analysis**
@@ -111,7 +123,7 @@ The full training loop, documented as it happens. Each step has a concrete finis
   - *Done when: a reader can tell exactly how good the model is, per class, and where it breaks*
 
 **3.6 — Ship it**
-- [ ] Swap the app's weights to the fine-tuned model behind a `CRICVISION_WEIGHTS` env var (pretrained stays the default fallback)
+- [x] Swap the app's weights to the fine-tuned model behind a `CRICVISION_WEIGHTS` env var (pretrained stays the default fallback) — wired: custom weights use the model's own cricket classes end-to-end (detect, tracking, heatmap)
 - [ ] Upload weights + dataset card to Hugging Face Hub; deploy the app to HF Spaces
   - *Done when: the live demo detects `batsman` vs `bowler` — something COCO fundamentally cannot do*
 
